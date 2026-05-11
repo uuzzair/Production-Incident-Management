@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.vite/
+.cache/
+
+*.log
+
+.env
+.env.*
+!.env.local.example
+
+README.md
