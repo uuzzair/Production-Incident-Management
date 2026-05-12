@@ -45,5 +45,6 @@ class UserSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    csrf_token_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     user: Mapped[User] = relationship(back_populates="sessions")

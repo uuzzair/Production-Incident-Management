@@ -10,6 +10,8 @@ import {
   Highlighter,
   Italic,
   Loader2,
+  LogIn,
+  LogOut,
   MessageSquarePlus,
   Underline,
   UserRound,
@@ -20,15 +22,22 @@ import {
 } from 'lucide-vue-next';
 import {
   addIncidentUpdate,
+  clearCsrfToken,
   createReporter,
   createIncident,
+  getCurrentUser,
   getIncident,
   getApiErrorMessage,
+  getLoginUrl,
+  isForbiddenError,
+  isUnauthorizedError,
   listReporters,
   listIncidents,
+  logout,
+  refreshCsrfToken,
   resolveIncident
 } from '@/services/incidents';
-import type { Incident, IncidentCreatePayload, IncidentDetail, Reporter, Severity } from '@/types';
+import type { AuthUser, Incident, IncidentCreatePayload, IncidentDetail, Reporter, Severity } from '@/types';
 
 const severities: Severity[] = ['low', 'medium', 'high', 'critical'];
 
@@ -45,6 +54,13 @@ const isLoading = ref(false);
 const isDetailLoading = ref(false);
 const isSubmitting = ref(false);
 const error = ref('');
+const authError = ref('');
+const authState = reactive({
+  isAuthenticated: false,
+  user: null as AuthUser | null,
+  role: 'readonly',
+  isLoading: true
+});
 const searchTerm = ref('');
 const filters = reactive({
   status: '',
@@ -89,6 +105,59 @@ const currentPage = computed(() => Math.floor(pagination.offset / pagination.lim
 const totalPages = computed(() => Math.max(1, Math.ceil(pagination.total / pagination.limit)));
 const canGoPrevious = computed(() => pagination.offset > 0);
 const canGoNext = computed(() => pagination.offset + pagination.limit < pagination.total);
+const displayUserName = computed(() => authState.user?.display_name || authState.user?.email || 'Signed in');
+const canCreateRecords = computed(() =>
+  authState.isAuthenticated && ['admin', 'manager', 'responder', 'reporter'].includes(authState.role)
+);
+const canManageIncident = computed(() =>
+  authState.isAuthenticated && ['admin', 'manager', 'responder'].includes(authState.role)
+);
+
+async function loadAuth(): Promise<void> {
+  authState.isLoading = true;
+  authError.value = '';
+
+  try {
+    const user = await getCurrentUser();
+    await refreshCsrfToken();
+    authState.user = user;
+    authState.role = user.role;
+    authState.isAuthenticated = true;
+  } catch (caught) {
+    clearCsrfToken();
+    authState.user = null;
+    authState.role = 'readonly';
+    authState.isAuthenticated = false;
+    if (!isUnauthorizedError(caught)) {
+      authError.value = getErrorMessage(caught, 'Could not load sign-in state.');
+    }
+  } finally {
+    authState.isLoading = false;
+  }
+}
+
+function login(): void {
+  window.location.assign(getLoginUrl());
+}
+
+async function logoutUser(): Promise<void> {
+  authState.isLoading = true;
+  authError.value = '';
+
+  try {
+    await logout();
+  } catch (caught) {
+    if (!isUnauthorizedError(caught)) {
+      authError.value = getErrorMessage(caught, 'Could not sign out.');
+    }
+  } finally {
+    clearCsrfToken();
+    authState.user = null;
+    authState.role = 'readonly';
+    authState.isAuthenticated = false;
+    authState.isLoading = false;
+  }
+}
 
 async function loadIncidents(preferredId?: number): Promise<void> {
   isLoading.value = true;
@@ -129,6 +198,7 @@ async function loadReporters(): Promise<void> {
 }
 
 async function submitReporter(): Promise<void> {
+  if (!canCreateRecords.value) return;
   const name = newReporterName.value.trim();
   if (!name) return;
 
@@ -141,6 +211,9 @@ async function submitReporter(): Promise<void> {
     form.created_by = reporter.name;
     newReporterName.value = '';
   } catch (caught) {
+    if (isUnauthorizedError(caught) || isForbiddenError(caught)) {
+      await loadAuth();
+    }
     error.value = getErrorMessage(caught, 'Could not save reporter.');
   } finally {
     isSubmitting.value = false;
@@ -161,6 +234,7 @@ async function selectIncident(id: number): Promise<void> {
 }
 
 async function submitIncident(): Promise<void> {
+  if (!canCreateRecords.value) return;
   if (!form.title.trim() || !form.created_by.trim() || !form.description.trim()) return;
 
   isSubmitting.value = true;
@@ -179,6 +253,9 @@ async function submitIncident(): Promise<void> {
     form.description = '';
     await loadIncidents(created.id);
   } catch (caught) {
+    if (isUnauthorizedError(caught) || isForbiddenError(caught)) {
+      await loadAuth();
+    }
     error.value = getErrorMessage(caught, 'Could not create the incident.');
   } finally {
     isSubmitting.value = false;
@@ -186,6 +263,7 @@ async function submitIncident(): Promise<void> {
 }
 
 async function submitUpdate(): Promise<void> {
+  if (!canManageIncident.value) return;
   if (!selectedIncident.value || !updateMessage.value.trim()) return;
 
   isSubmitting.value = true;
@@ -196,6 +274,9 @@ async function submitUpdate(): Promise<void> {
     updateMessage.value = '';
     await selectIncident(selectedIncident.value.id);
   } catch (caught) {
+    if (isUnauthorizedError(caught) || isForbiddenError(caught)) {
+      await loadAuth();
+    }
     error.value = getErrorMessage(caught, 'Could not add the update.');
   } finally {
     isSubmitting.value = false;
@@ -203,6 +284,7 @@ async function submitUpdate(): Promise<void> {
 }
 
 async function markResolved(): Promise<void> {
+  if (!canManageIncident.value) return;
   if (!selectedIncident.value) return;
 
   isSubmitting.value = true;
@@ -212,6 +294,9 @@ async function markResolved(): Promise<void> {
     const resolved = await resolveIncident(selectedIncident.value.id);
     await loadIncidents(resolved.id);
   } catch (caught) {
+    if (isUnauthorizedError(caught) || isForbiddenError(caught)) {
+      await loadAuth();
+    }
     error.value = getErrorMessage(caught, 'Could not resolve the incident.');
   } finally {
     isSubmitting.value = false;
@@ -385,6 +470,7 @@ function getErrorMessage(caught: unknown, fallback: string): string {
 }
 
 onMounted(() => {
+  void loadAuth();
   void loadReporters();
   void loadIncidents();
 });
@@ -406,72 +492,82 @@ onMounted(() => {
           <FilePlus2 :size="18" />
           <h2>New Incident</h2>
         </div>
-        <label>
-          <span>Title</span>
-          <input v-model="form.title" required maxlength="120" placeholder="Payment gateway latency" />
-        </label>
-        <div class="reporter-picker">
+        <template v-if="canCreateRecords">
           <label>
-            <span>Reported by</span>
-            <select v-model="form.created_by" required>
-              <option value="" disabled>Select saved name</option>
-              <option v-for="reporter in reporters" :key="reporter.id" :value="reporter.name">
-                {{ reporter.name }}
+            <span>Title</span>
+            <input v-model="form.title" required maxlength="120" placeholder="Payment gateway latency" />
+          </label>
+          <div class="reporter-picker">
+            <label>
+              <span>Reported by</span>
+              <select v-model="form.created_by" required>
+                <option value="" disabled>Select saved name</option>
+                <option v-for="reporter in reporters" :key="reporter.id" :value="reporter.name">
+                  {{ reporter.name }}
+                </option>
+              </select>
+            </label>
+            <div class="reporter-form">
+              <input v-model="newReporterName" maxlength="120" placeholder="Save new name" />
+              <button
+                class="mini-action"
+                type="button"
+                :disabled="isSubmitting || !newReporterName.trim()"
+                @click="submitReporter"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+          <label>
+            <span>Severity</span>
+            <select v-model="form.severity">
+              <option v-for="severity in severities" :key="severity" :value="severity">
+                {{ severity }}
               </option>
             </select>
           </label>
-          <div class="reporter-form">
-            <input v-model="newReporterName" maxlength="120" placeholder="Save new name" />
-            <button
-              class="mini-action"
-              type="button"
-              :disabled="isSubmitting || !newReporterName.trim()"
-              @click="submitReporter"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-        <label>
-          <span>Severity</span>
-          <select v-model="form.severity">
-            <option v-for="severity in severities" :key="severity" :value="severity">
-              {{ severity }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>Description</span>
-          <div class="format-toolbar" aria-label="Description formatting tools">
-            <button type="button" title="Bold" @click="applyDescriptionFormat('**')">
-              <Bold :size="16" />
-            </button>
-            <button type="button" title="Italic" @click="applyDescriptionFormat('*')">
-              <Italic :size="16" />
-            </button>
-            <button type="button" title="Underline" @click="applyDescriptionFormat('__')">
-              <Underline :size="16" />
-            </button>
-            <button type="button" title="Highlight" @click="applyDescriptionFormat('==')">
-              <Highlighter :size="16" />
-            </button>
-          </div>
-          <textarea
-            ref="descriptionInput"
-            v-model="form.description"
-            required
-            rows="6"
-            placeholder="What happened?
+          <label>
+            <span>Description</span>
+            <div class="format-toolbar" aria-label="Description formatting tools">
+              <button type="button" title="Bold" @click="applyDescriptionFormat('**')">
+                <Bold :size="16" />
+              </button>
+              <button type="button" title="Italic" @click="applyDescriptionFormat('*')">
+                <Italic :size="16" />
+              </button>
+              <button type="button" title="Underline" @click="applyDescriptionFormat('__')">
+                <Underline :size="16" />
+              </button>
+              <button type="button" title="Highlight" @click="applyDescriptionFormat('==')">
+                <Highlighter :size="16" />
+              </button>
+            </div>
+            <textarea
+              ref="descriptionInput"
+              v-model="form.description"
+              required
+              rows="6"
+              placeholder="What happened?
 - Impacted service
 - Customer impact
 https://status.example.com"
-          />
-        </label>
-        <button class="primary-action" :disabled="isSubmitting">
-          <Loader2 v-if="isSubmitting" class="spin" :size="18" />
-          <FilePlus2 v-else :size="18" />
-          Create
-        </button>
+            />
+          </label>
+          <button class="primary-action" :disabled="isSubmitting">
+            <Loader2 v-if="isSubmitting" class="spin" :size="18" />
+            <FilePlus2 v-else :size="18" />
+            Create
+          </button>
+        </template>
+        <div v-else class="auth-callout">
+          <p v-if="authState.isAuthenticated">Your current role is readonly. Write actions are hidden.</p>
+          <p v-else>Sign in to create incidents or add operational updates.</p>
+          <button v-if="!authState.isAuthenticated" class="primary-action" type="button" @click="login">
+            <LogIn :size="18" />
+            Sign in
+          </button>
+        </div>
       </form>
     </aside>
 
@@ -481,9 +577,33 @@ https://status.example.com"
           <h1>Incident Reporting</h1>
           <p>Track open issues, capture updates, and close the loop.</p>
         </div>
-        <button class="icon-button" title="Refresh incidents" @click="loadIncidents()" :disabled="isLoading">
-          <RefreshCw :class="{ spin: isLoading }" :size="19" />
-        </button>
+        <div class="topbar-actions">
+          <div class="auth-status">
+            <span v-if="authState.isLoading">Checking sign-in</span>
+            <template v-else-if="authState.isAuthenticated">
+              <strong>{{ displayUserName }}</strong>
+              <span>{{ authState.role }}</span>
+            </template>
+            <span v-else>Not signed in</span>
+          </div>
+          <button
+            v-if="authState.isAuthenticated"
+            class="auth-button"
+            type="button"
+            :disabled="authState.isLoading"
+            @click="logoutUser"
+          >
+            <LogOut :size="18" />
+            Logout
+          </button>
+          <button v-else class="auth-button" type="button" :disabled="authState.isLoading" @click="login">
+            <LogIn :size="18" />
+            Login
+          </button>
+          <button class="icon-button" title="Refresh incidents" @click="loadIncidents()" :disabled="isLoading">
+            <RefreshCw :class="{ spin: isLoading }" :size="19" />
+          </button>
+        </div>
       </header>
 
       <section class="metrics-grid">
@@ -540,6 +660,10 @@ https://status.example.com"
             </button>
           </div>
 
+          <div v-if="authError" class="notice error">{{ authError }}</div>
+          <div v-if="authState.isAuthenticated && authState.role === 'readonly'" class="notice info">
+            You are signed in with readonly access. Create, update, and resolve actions are hidden.
+          </div>
           <div v-if="error" class="notice error">{{ error }}</div>
 
           <div v-if="isLoading" class="loading-state">
@@ -623,7 +747,7 @@ https://status.example.com"
             <div class="rich-text description" v-html="renderRichText(selectedIncident.description)" />
 
             <button
-              v-if="selectedIncident.status !== 'resolved'"
+              v-if="selectedIncident.status !== 'resolved' && canManageIncident"
               class="resolve-action"
               :disabled="isSubmitting"
               @click="markResolved"
@@ -643,7 +767,7 @@ https://status.example.com"
               <p v-else class="muted">No updates have been recorded yet.</p>
             </div>
 
-            <form class="update-form" @submit.prevent="submitUpdate">
+            <form v-if="canManageIncident" class="update-form" @submit.prevent="submitUpdate">
               <label>
                 <span>Add update</span>
                 <textarea
@@ -657,6 +781,8 @@ https://status.example.com"
                 Add Update
               </button>
             </form>
+            <p v-else-if="authState.isAuthenticated" class="muted">Your role cannot add updates or resolve incidents.</p>
+            <p v-else class="muted">Sign in as a responder or admin to add updates or resolve incidents.</p>
           </template>
 
           <div v-else class="empty-state">

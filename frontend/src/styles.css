@@ -246,6 +246,62 @@ textarea:focus {
   margin-bottom: 22px;
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-status {
+  display: grid;
+  min-width: 190px;
+  justify-items: end;
+  color: #64727d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.auth-status strong {
+  max-width: 260px;
+  overflow: hidden;
+  color: #172026;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-status span:last-child {
+  text-transform: capitalize;
+}
+
+.auth-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 14px;
+  color: #ffffff;
+  background: #2b7a78;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.auth-callout {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  color: #d7e3ea;
+  background: #253845;
+  border: 1px solid #40535f;
+  border-radius: 8px;
+}
+
+.auth-callout p {
+  margin: 0;
+  line-height: 1.45;
+}
+
 .topbar h1,
 .topbar p {
   margin: 0;
@@ -671,6 +727,11 @@ td span {
   background: #ffe1df;
 }
 
+.notice.info {
+  color: #1c5f8b;
+  background: #dceefb;
+}
+
 .loading-state,
 .empty-state {
   display: grid;
@@ -725,10 +786,15 @@ td span {
   }
 
   .topbar,
+  .topbar-actions,
   .toolbar,
   .pagination-bar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .auth-status {
+    justify-items: start;
   }
 
   .metrics-grid {

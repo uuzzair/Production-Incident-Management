@@ -8,6 +8,7 @@ from alembic.script import ScriptDirectory
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.routes.auth import router as auth_router
 from app.api.routes.incidents import router as incidents_router
@@ -32,6 +33,14 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 register_exception_handlers(app)
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_cookie_secret,
+    session_cookie=settings.oidc_state_cookie_name,
+    max_age=600,
+    same_site="lax",
+    https_only=settings.secure_cookies,
+)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,

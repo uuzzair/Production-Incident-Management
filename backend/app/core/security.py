@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import get_db_session
-from app.services.sessions import get_valid_session
+from app.models.user import UserSession
+from app.services.sessions import get_valid_session, is_valid_csrf_token
 
 
 @dataclass(frozen=True)
@@ -17,11 +18,48 @@ class Principal:
     actor_type: str
     subject: str
     role: str
+    user_id: int | None = None
     display_name: str | None = None
     email: str | None = None
+    is_active: bool | None = None
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def ensure_csrf_token(request: Request, user_session: UserSession) -> None:
+    if request.method.upper() not in UNSAFE_METHODS:
+        return
+
+    settings = get_settings()
+    token = request.headers.get("x-csrf-token")
+    if not token or not is_valid_csrf_token(user_session, token, settings):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid CSRF token",
+        )
+
+
+async def get_current_user_session(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> UserSession:
+    settings = get_settings()
+    session_token = request.cookies.get(settings.session_cookie_name)
+    if not session_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing session",
+        )
+
+    user_session = await get_valid_session(session, session_token, settings)
+    if user_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid session",
+        )
+    return user_session
 
 
 async def get_current_principal(
@@ -34,13 +72,16 @@ async def get_current_principal(
     if session_token:
         user_session = await get_valid_session(session, session_token, settings)
         if user_session is not None:
+            ensure_csrf_token(request, user_session)
             user = user_session.user
             return Principal(
                 actor_type="user",
                 subject=user.oidc_subject,
                 role=user.role,
+                user_id=user.id,
                 display_name=user.display_name,
                 email=user.email,
+                is_active=user.is_active,
             )
 
     token = request.headers.get("x-api-key")

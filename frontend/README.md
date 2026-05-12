@@ -23,4 +23,4 @@ $env:VITE_API_URL="http://127.0.0.1:8001/api/v1"
 npm run dev
 ```
 
-The frontend does not read API tokens. Use the backend API directly for local write testing until browser user authentication is added.
+The frontend does not read API tokens. Login redirects to the backend `/api/v1/auth/login` endpoint and uses the backend session cookie after OIDC login completes. After `/auth/me` succeeds, the frontend fetches `/auth/csrf` and sends `X-CSRF-Token` on write requests.

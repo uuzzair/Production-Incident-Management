@@ -1,13 +1,34 @@
 import axios from 'axios';
-import type { Incident, IncidentCreatePayload, IncidentDetail, IncidentListResponse, IncidentUpdate, Reporter } from '@/types';
+import type { AuthUser, Incident, IncidentCreatePayload, IncidentDetail, IncidentListResponse, IncidentUpdate, Reporter } from '@/types';
+
+const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8001/api/v1';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8001/api/v1',
+  baseURL: apiBaseUrl,
   timeout: 30000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
   }
 });
+
+let csrfToken: string | null = null;
+
+api.interceptors.request.use((config) => {
+  const method = config.method?.toUpperCase();
+  if (csrfToken && method && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    config.headers.set('X-CSRF-Token', csrfToken);
+  }
+  return config;
+});
+
+export function isUnauthorizedError(caught: unknown): boolean {
+  return axios.isAxiosError(caught) && caught.response?.status === 401;
+}
+
+export function isForbiddenError(caught: unknown): boolean {
+  return axios.isAxiosError(caught) && caught.response?.status === 403;
+}
 
 export function getApiErrorMessage(caught: unknown, fallback: string): string {
   if (axios.isAxiosError(caught)) {
@@ -64,4 +85,27 @@ export async function listReporters(): Promise<Reporter[]> {
 export async function createReporter(name: string): Promise<Reporter> {
   const response = await api.post<Reporter>('/reporters/', { name });
   return response.data;
+}
+
+export async function getCurrentUser(): Promise<AuthUser> {
+  const response = await api.get<AuthUser>('/auth/me');
+  return response.data;
+}
+
+export async function refreshCsrfToken(): Promise<string> {
+  const response = await api.get<{ csrf_token: string }>('/auth/csrf');
+  csrfToken = response.data.csrf_token;
+  return csrfToken;
+}
+
+export function clearCsrfToken(): void {
+  csrfToken = null;
+}
+
+export async function logout(): Promise<void> {
+  await api.post('/auth/logout');
+}
+
+export function getLoginUrl(): string {
+  return `${apiBaseUrl.replace(/\/$/, '')}/auth/login`;
 }

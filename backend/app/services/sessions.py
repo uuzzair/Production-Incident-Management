@@ -3,6 +3,7 @@ import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 
+from secrets import compare_digest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,10 +26,22 @@ def generate_session_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+def generate_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
 def hash_session_token(token: str, settings: Settings) -> str:
     return hmac.new(
         settings.session_cookie_secret.encode("utf-8"),
-        token.encode("utf-8"),
+        f"session:{token}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def hash_csrf_token(token: str, settings: Settings) -> str:
+    return hmac.new(
+        settings.session_cookie_secret.encode("utf-8"),
+        f"csrf:{token}".encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
 
@@ -80,7 +93,21 @@ async def get_valid_session(
     return user_session
 
 
+async def rotate_csrf_token(session: AsyncSession, user_session: UserSession, settings: Settings) -> str:
+    token = generate_csrf_token()
+    user_session.csrf_token_hash = hash_csrf_token(token, settings)
+    await session.commit()
+    return token
+
+
+def is_valid_csrf_token(user_session: UserSession, token: str, settings: Settings) -> bool:
+    if not user_session.csrf_token_hash:
+        return False
+    return compare_digest(user_session.csrf_token_hash, hash_csrf_token(token, settings))
+
+
 async def revoke_session(session: AsyncSession, user_session: UserSession) -> None:
     if user_session.revoked_at is None:
         user_session.revoked_at = utc_now()
+        user_session.csrf_token_hash = None
         await session.commit()

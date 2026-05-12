@@ -1,5 +1,6 @@
 export type Severity = 'low' | 'medium' | 'high' | 'critical';
 export type IncidentStatus = 'open' | 'resolved';
+export type UserRole = 'readonly' | 'reporter' | 'responder' | 'admin' | 'manager';
 
 export interface Incident {
   id: number;
@@ -45,4 +46,14 @@ export interface Pagination {
 export interface IncidentListResponse {
   items: Incident[];
   pagination: Pagination;
+}
+
+export interface AuthUser {
+  actor_type: 'user' | 'service';
+  subject: string;
+  user_id: number | null;
+  role: UserRole;
+  display_name: string | null;
+  email: string | null;
+  is_active: boolean | null;
 }
