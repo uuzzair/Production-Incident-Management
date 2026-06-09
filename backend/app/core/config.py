@@ -59,6 +59,8 @@ class Settings:
     oidc_client_id: str | None
     oidc_client_secret: str | None
     oidc_redirect_uri: str | None
+    oidc_authorization_url: str | None
+    oidc_backchannel_issuer_url: str | None
     session_cookie_name: str
     session_cookie_secret: str
     session_expiry_hours: int
@@ -103,6 +105,8 @@ class Settings:
             oidc_client_id=os.getenv("OIDC_CLIENT_ID") or None,
             oidc_client_secret=os.getenv("OIDC_CLIENT_SECRET") or None,
             oidc_redirect_uri=os.getenv("OIDC_REDIRECT_URI") or None,
+            oidc_authorization_url=os.getenv("OIDC_AUTHORIZATION_URL") or None,
+            oidc_backchannel_issuer_url=os.getenv("OIDC_BACKCHANNEL_ISSUER_URL") or None,
             session_cookie_name=os.getenv("SESSION_COOKIE_NAME", "incident_session"),
             session_cookie_secret=session_secret,
             session_expiry_hours=int(os.getenv("SESSION_EXPIRY_HOURS", "12")),
@@ -160,6 +164,14 @@ class Settings:
                 raise ValueError("Production must set OIDC_ISSUER_URL to an HTTPS non-local URL")
             if not _is_https_url(self.oidc_redirect_uri) or _is_local_url(self.oidc_redirect_uri):
                 raise ValueError("Production must set OIDC_REDIRECT_URI to an HTTPS non-local URL")
+            if self.oidc_authorization_url and (
+                not _is_https_url(self.oidc_authorization_url) or _is_local_url(self.oidc_authorization_url)
+            ):
+                raise ValueError("Production must set OIDC_AUTHORIZATION_URL to an HTTPS non-local URL")
+            if self.oidc_backchannel_issuer_url and (
+                not _is_https_url(self.oidc_backchannel_issuer_url) or _is_local_url(self.oidc_backchannel_issuer_url)
+            ):
+                raise ValueError("Production must set OIDC_BACKCHANNEL_ISSUER_URL to an HTTPS non-local URL")
             if not _is_https_url(self.auth_success_redirect_url) or _is_local_url(self.auth_success_redirect_url):
                 raise ValueError("Production must set AUTH_SUCCESS_REDIRECT_URL to an HTTPS non-local URL")
             if (

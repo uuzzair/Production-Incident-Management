@@ -1,0 +1,49 @@
+{
+  "realm": "incidents-local",
+  "enabled": true,
+  "displayName": "Incidents Local",
+  "clients": [
+    {
+      "clientId": "fastapi-incidents",
+      "name": "FastAPI Incidents Local",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "local-keycloak-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:8001/api/v1/auth/callback"
+      ],
+      "webOrigins": [
+        "http://127.0.0.1:8080",
+        "http://localhost:8080",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://127.0.0.1:8080##http://localhost:8080##http://127.0.0.1:5173##http://localhost:5173"
+      }
+    }
+  ],
+  "users": [
+    {
+      "username": "readonly",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "readonly@example.com",
+      "firstName": "Readonly",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "readonly",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

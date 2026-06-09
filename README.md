@@ -46,8 +46,33 @@ The frontend never reads or embeds API tokens. Browser login redirects to the ba
 docker compose up --build
 ```
 
-This local compose file starts PostgreSQL, runs backend migrations, serves the API on `http://127.0.0.1:8001`, and serves the frontend on `http://127.0.0.1:8080`.
+This local compose file starts PostgreSQL, imports a local Keycloak realm, runs backend migrations, serves the API on `http://127.0.0.1:8001`, serves Keycloak on `http://127.0.0.1:8082`, and serves the frontend on `http://127.0.0.1:8080`.
 The containerized frontend is built without any browser-embedded API token. Write actions use backend session cookies after OIDC login and include a session-bound CSRF token.
+
+Local Keycloak credentials are development-only and safe to keep in the repository:
+
+- Admin console: `http://127.0.0.1:8082/admin`
+- Admin user: `admin`
+- Admin password: `admin`
+- Realm: `incidents-local`
+- Client ID: `fastapi-incidents`
+- Client secret: `local-keycloak-secret`
+- Test user: `readonly`
+- Test password: `readonly`
+- Test email: `readonly@example.com`
+
+The Compose backend keeps `OIDC_ISSUER_URL=http://127.0.0.1:8082/realms/incidents-local` because that is the issuer Keycloak puts into browser-issued ID tokens. It also sets `OIDC_BACKCHANNEL_ISSUER_URL=http://host.docker.internal:8082/realms/incidents-local` so the backend container can call Keycloak token and JWKS endpoints through the published host port. If you run the backend directly on your host and only use Compose for Keycloak, use `OIDC_ISSUER_URL=http://localhost:8082/realms/incidents-local` from `backend/.env.example` and leave the backchannel value empty.
+
+Local browser validation:
+
+1. Run `docker compose up --build`.
+2. Open `http://127.0.0.1:8080`.
+3. Click login and sign in with `readonly` / `readonly`.
+4. Confirm the frontend shows `readonly@example.com` with role `readonly`.
+5. Confirm create/update/resolve controls are hidden for the readonly user.
+6. Call `GET http://127.0.0.1:8001/api/v1/auth/me` in the same browser session and confirm the session user is returned.
+7. Call `GET http://127.0.0.1:8001/api/v1/auth/csrf` in the same browser session and confirm a CSRF token is returned.
+8. Click logout and confirm `/api/v1/auth/me` returns unauthenticated afterward.
 
 For staging/production, provide OIDC, database, CORS, API key, and `SESSION_SECRET_KEY` values through deployment environment variables or a secret manager. Do not commit real secrets to this repository.
 

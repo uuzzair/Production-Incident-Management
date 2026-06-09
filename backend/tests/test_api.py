@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 from starlette.responses import RedirectResponse
 from authlib.integrations.base_client.errors import OAuthError
+from authlib.jose.errors import JoseError
 
 from app.api.routes import auth as auth_routes
 from app.services import oidc as oidc_service
@@ -69,9 +70,11 @@ PRODUCTION_CONFIG_ENV = {
     "CORS_ALLOWED_ORIGINS": "https://incidents.example.com",
     "CORS_ALLOW_CREDENTIALS": "true",
     "OIDC_ISSUER_URL": "https://idp.example.com",
+    "OIDC_BACKCHANNEL_ISSUER_URL": "https://idp-internal.example.com",
     "OIDC_CLIENT_ID": "client-id",
     "OIDC_CLIENT_SECRET": "client-secret",
     "OIDC_REDIRECT_URI": "https://api.example.com/api/v1/auth/callback",
+    "OIDC_AUTHORIZATION_URL": "https://idp.example.com/protocol/openid-connect/auth",
     "AUTH_SUCCESS_REDIRECT_URL": "https://incidents.example.com",
     "SESSION_SECRET_KEY": "x" * 32,
     "SECURE_COOKIES": "true",
@@ -82,6 +85,8 @@ CONFIG_ENV_KEYS = {
     *PRODUCTION_CONFIG_ENV.keys(),
     "SESSION_COOKIE_SECRET",
     "CORS_ALLOWED_ORIGIN_REGEX",
+    "OIDC_AUTHORIZATION_URL",
+    "OIDC_BACKCHANNEL_ISSUER_URL",
 }
 
 
@@ -119,14 +124,15 @@ class FakeOidcClient:
     async def authorize_access_token(self, request):
         if self.callback_error:
             raise OAuthError(error="invalid_state", description="Invalid state")
+        if self.id_token_error:
+            raise JoseError(description="Invalid ID token")
         token = {"userinfo": self.claims}
         if self.include_id_token:
             token["id_token"] = "fake-id-token"
         return token
 
     async def parse_id_token(self, request, token):
-        if self.id_token_error:
-            raise OAuthError(error="invalid_token", description="Invalid ID token")
+        raise AssertionError("authorize_access_token should parse the ID token")
         return self.claims
 
 
@@ -196,6 +202,26 @@ def test_production_rejects_non_https_redirect_urls(monkeypatch: pytest.MonkeyPa
     )
 
     with pytest.raises(ValueError, match="AUTH_SUCCESS_REDIRECT_URL"):
+        Settings.from_env()
+
+
+def test_production_rejects_local_oidc_authorization_url(monkeypatch: pytest.MonkeyPatch):
+    set_production_config(
+        monkeypatch,
+        OIDC_AUTHORIZATION_URL="http://127.0.0.1:8082/realms/incidents-local/protocol/openid-connect/auth",
+    )
+
+    with pytest.raises(ValueError, match="OIDC_AUTHORIZATION_URL"):
+        Settings.from_env()
+
+
+def test_production_rejects_local_oidc_backchannel_issuer_url(monkeypatch: pytest.MonkeyPatch):
+    set_production_config(
+        monkeypatch,
+        OIDC_BACKCHANNEL_ISSUER_URL="http://host.docker.internal:8082/realms/incidents-local",
+    )
+
+    with pytest.raises(ValueError, match="OIDC_BACKCHANNEL_ISSUER_URL"):
         Settings.from_env()
 
 
@@ -409,7 +435,7 @@ async def test_auth_callback_rejects_missing_or_invalid_id_token(
     invalid_id_token = await client.get("/api/v1/auth/callback?code=fake&state=fake")
 
     assert invalid_id_token.status_code == 401
-    assert invalid_id_token.json()["error"]["message"] == "OIDC ID token validation failed"
+    assert invalid_id_token.json()["error"]["message"] == "OIDC callback validation failed"
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from authlib.integrations.base_client.errors import OAuthError
+from authlib.jose.errors import JoseError
 from fastapi import HTTPException, Request, status
 from starlette.responses import Response
 
@@ -40,13 +41,29 @@ def get_oidc_client(settings: Settings):
     require_oidc_settings(settings)
     oauth = OAuth()
     issuer = settings.oidc_issuer_url.rstrip("/") if settings.oidc_issuer_url else ""
-    oauth.register(
-        name="oidc",
-        client_id=settings.oidc_client_id,
-        client_secret=settings.oidc_client_secret,
-        server_metadata_url=f"{issuer}/.well-known/openid-configuration",
-        client_kwargs={"scope": "openid email profile"},
-    )
+    authorization_url = settings.oidc_authorization_url or f"{issuer}/protocol/openid-connect/auth"
+    if settings.oidc_backchannel_issuer_url:
+        backchannel_issuer = settings.oidc_backchannel_issuer_url.rstrip("/")
+        oauth.register(
+            name="oidc",
+            client_id=settings.oidc_client_id,
+            client_secret=settings.oidc_client_secret,
+            authorize_url=authorization_url,
+            access_token_url=f"{backchannel_issuer}/protocol/openid-connect/token",
+            issuer=issuer,
+            jwks_uri=f"{backchannel_issuer}/protocol/openid-connect/certs",
+            id_token_signing_alg_values_supported=["RS256"],
+            client_kwargs={"scope": "openid email profile"},
+        )
+    else:
+        oauth.register(
+            name="oidc",
+            client_id=settings.oidc_client_id,
+            client_secret=settings.oidc_client_secret,
+            authorize_url=authorization_url,
+            server_metadata_url=f"{issuer}/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
     return oauth.oidc
 
 
@@ -64,7 +81,7 @@ async def complete_oidc_callback(request: Request, settings: Settings) -> OidcCl
     client = get_oidc_client(settings)
     try:
         token = await client.authorize_access_token(request)
-    except OAuthError as exc:
+    except (OAuthError, JoseError, KeyError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="OIDC callback validation failed",
@@ -76,14 +93,7 @@ async def complete_oidc_callback(request: Request, settings: Settings) -> OidcCl
             detail="OIDC provider did not return an ID token",
         )
 
-    try:
-        raw_claims = await client.parse_id_token(request, token)
-    except OAuthError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="OIDC ID token validation failed",
-        ) from exc
-
+    raw_claims = token.get("userinfo")
     if raw_claims is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
